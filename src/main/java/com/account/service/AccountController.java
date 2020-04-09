@@ -86,4 +86,17 @@ public class AccountController {
 		return ResponseEntity.noContent().build();
 	}
 	
+	@PostMapping("/transfer/{idAccountDebited}/{idAccountCredited}/{money}") CollectionModel<EntityModel<Account>> transferMoney(@PathVariable Long idAccountDebited, @PathVariable Long idAccountCredited, @PathVariable double money){
+		Account accountDebited = repository.findById(idAccountDebited).orElseThrow(()-> new AccountException("Could not find account ",idAccountDebited));
+		Account accountCredited = repository.findById(idAccountCredited).orElseThrow(()-> new AccountException("Could not find account ",idAccountCredited));
+		if(accountDebited.getTreasury()==false && accountDebited.getBalance()-money<0) {
+			throw new AccountException("Could not transfer money because debited account is not treasury and there is not enough balance. Debited Account id: ",idAccountDebited);
+		}
+		accountDebited.setBalance(accountDebited.getBalance()-money);
+		accountCredited.setBalance(accountCredited.getBalance()+money);
+		repository.save(accountDebited);
+		repository.save(accountCredited);
+		return all();		
+	}
+	
 }
