@@ -23,4 +23,9 @@ public class Account {
 		this.balance=balance;
 		this.treasury=treasury;
 	}
+	
+	public void transferMoney(Account accountCredited, double money) {
+		this.balance=this.balance-money;
+		accountCredited.setBalance(accountCredited.getBalance()+money);
+	}
 }
