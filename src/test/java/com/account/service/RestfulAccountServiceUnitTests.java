@@ -1,11 +1,13 @@
 package com.account.service;
 
+import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -187,6 +189,143 @@ public class RestfulAccountServiceUnitTests {
 		List<Account> accountList = new ArrayList<>();
 		accountList.add(accountDebitedUpdated);
 		accountList.add(accountCreditedUpdated);
+		given(repository.findAll()).willReturn(accountList);
+		
+		EntityModel<Account> resource1 = new EntityModel<> (accountDebitedUpdated, new Link("http://localhost:8080/accounts/"+ accountDebitedUpdated.getId()),new Link("http://localhost:8080/accounts", "accounts"));
+		given(assembler.toModel(accountDebitedUpdated)).willReturn(resource1);
+		EntityModel<Account> resource2 = new EntityModel<> (accountCreditedUpdated, new Link("http://localhost:8080/accounts/"+ accountCreditedUpdated.getId()),new Link("http://localhost:8080/accounts", "accounts"));
+		given(assembler.toModel(accountCreditedUpdated)).willReturn(resource2);
+		
+		//when + then
+		mockMvc.perform(post("/transfer/"+accountDebited.getId()+"/"+accountCredited.getId()+"/"+money))
+		.andDo(print())
+		.andExpect(jsonPath("$._embedded.accountList[0].balance",is(accountDebitedUpdated.getBalance())))
+		.andExpect(jsonPath("$._embedded.accountList[1].balance",is(accountCreditedUpdated.getBalance())));
+	}
+	
+	@Test
+	void testGetAccountWrongId() throws Exception {
+		//given
+		given(repository.findById(5L)).willReturn(Optional.empty());
+		
+		//when + then
+		mockMvc.perform(get("/accounts/5"))
+		.andDo(print())
+		.andExpect(status().isNotFound())
+		.andExpect(content().string(containsString("Could not find account 5")));
+	}
+	
+	@Test
+	void testPostTreasuryAccountNegativeBalance() throws Exception {
+		//given
+		Account account1 = new Account("Fernando Rios","euros",-5,false);
+		account1.setId(1L);
+		
+		//when + then
+	    mockMvc.perform(MockMvcRequestBuilders
+	    .post("/accounts")
+	    .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"name\":\"Fernando Rios\",\"currency\":\"euros\",\"balance\":-5,\"treasury\":false}"))
+		.andDo(print())
+		.andExpect(status().isNotFound())
+		.andExpect(content().string(containsString("Balance cannot be negative because it is not a treasury account. Account id: "+null)));		
+	}
+	@Test
+	void testPutAccountModifyTreasury() throws Exception {
+		//given
+		Account account = new Account("Fernando Rios","euros",200,false);
+		account.setId(1L);
+		Account accountUpdated = new Account("Fernando Rios","euros", 200, true);
+		accountUpdated.setId(1L);
+		
+		Optional<Account> optionalAccount = Optional.of(account);
+		given(repository.findById(account.getId())).willReturn(optionalAccount);
+				
+		//when + then
+	    mockMvc.perform(MockMvcRequestBuilders
+	    .put("/accounts/"+account.getId())
+	    .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"name\":\"Fernando Rios\",\"currency\":\"euros\",\"balance\":200,\"treasury\":true}"))
+		.andDo(print())
+		.andExpect(status().isNotFound())
+		.andExpect(content().string(containsString("Treasury property is not modifiable, you tried to modify it in account "+account.getId())));
+	}
+	
+	@Test
+	void testPutTreasuryAccountBalanceNegative() throws Exception {
+		//given
+		Account account = new Account("Fernando Rios","euros",200,false);
+		account.setId(1L);
+		Account accountUpdated = new Account("Fernando Rios","euros", -5, false);
+		accountUpdated.setId(1L);
+		
+		Optional<Account> optionalAccount = Optional.of(account);
+		given(repository.findById(account.getId())).willReturn(optionalAccount);
+				
+		//when + then
+	    mockMvc.perform(MockMvcRequestBuilders
+	    .put("/accounts/"+account.getId())
+	    .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"name\":\"Fernando Rios\",\"currency\":\"euros\",\"balance\":-5,\"treasury\":false}"))
+		.andDo(print())
+		.andExpect(status().isNotFound())
+		.andExpect(content().string(containsString("Balance cannot be negative because it is not a treasury account. Account id: "+account.getId())));
+	}
+	
+	@Test
+	void testDeleteAccountWrongId() throws Exception {
+		//given
+		given(repository.existsById(5L)).willReturn(false);
+		//when + then
+		mockMvc.perform(delete("/accounts/5"))
+			.andExpect(status().isNotFound())
+			.andExpect(content().string(containsString("Could not find account 5")));				
+	}
+	
+	@Test
+	void testTransferMoneyTreasuryAccountNotEnoughBalance() throws Exception {
+		//given
+		Account accountDebited = new Account("Fernando Rios","euros",200,false);
+		accountDebited.setId(1L);
+		Account accountCredited = new Account("Lorenzo Padilla","euros",1232.54,false);
+		accountCredited.setId(2L);
+		double money = 350;
+		
+		Optional<Account> optionalAccountDebited = Optional.of(accountDebited);
+		given(repository.findById(accountDebited.getId())).willReturn(optionalAccountDebited);
+		Optional<Account> optionalAccountCredited = Optional.of(accountCredited);
+		given(repository.findById(accountCredited.getId())).willReturn(optionalAccountCredited);
+
+		//when + then
+		mockMvc.perform(post("/transfer/"+accountDebited.getId()+"/"+accountCredited.getId()+"/"+money))
+		.andDo(print())
+		.andExpect(status().isNotFound())
+		.andExpect(content().string(containsString("Could not transfer money because debited account is not treasury and there is not enough balance. Debited Account id: "+accountDebited.getId())));
+	}
+	
+	@Test
+	void testTransferMoneyTreasuryAccountNegativeBalance() throws Exception {
+		//given
+		Account accountDebited = new Account("Fernando Rios","euros",200,true);
+		accountDebited.setId(1L);
+		Account accountCredited = new Account("Lorenzo Padilla","euros",1232.54,false);
+		accountCredited.setId(2L);
+		double money = 350;
+		
+		Optional<Account> optionalAccountDebited = Optional.of(accountDebited);
+		given(repository.findById(accountDebited.getId())).willReturn(optionalAccountDebited);
+		Optional<Account> optionalAccountCredited = Optional.of(accountCredited);
+		given(repository.findById(accountCredited.getId())).willReturn(optionalAccountCredited);
+		
+		Account accountDebitedUpdated = new Account("Fernando Rios","euros",200-money,true);
+		accountDebitedUpdated.setId(1L);
+		Account accountCreditedUpdated = new Account("Lorenzo Padilla","euros",1232.54+money,false);
+		accountCreditedUpdated.setId(2L);
+		
+		List<Account> accountList = new ArrayList<>();
+		accountList.add(accountDebitedUpdated);
+		accountList.add(accountCreditedUpdated);
+
 		given(repository.findAll()).willReturn(accountList);
 		
 		EntityModel<Account> resource1 = new EntityModel<> (accountDebitedUpdated, new Link("http://localhost:8080/accounts/"+ accountDebitedUpdated.getId()),new Link("http://localhost:8080/accounts", "accounts"));
